@@ -186,7 +186,7 @@ class Ray:
         for source in Scene.sources:
             (isIntersect, srcDist, srcIntersect) = source.Intersect(self)
             del srcIntersect #For now I'm ignoring the intersection point
-            if isIntersect:
+            if isIntersect and srcDist > 0:
                 # print(self)
                 delayTime = srcDist / PROP_SPEED
                 delaySamples = int(round(delayTime*source.sampRate))

@@ -52,7 +52,7 @@ rectRoom.addReceiver(Scene.Receiver(Vec(0.08,0,0), "right_ear"))
 
 rectRoom.addSource(Scene.Source(Vec(0,10,0), fileName="click.wav")) #click 10 meters ahead
 rectRoom.addSource(Scene.Source(Vec(-1.5,12,0), fileName="click.wav").Delay(2))
-rectRoom.addSource(Scene.Source(Vec(1.8,11,0), fileName="click.wav").Delay(1.5))
+rectRoom.addSource(Scene.Source(Vec(3,11,0), fileName="click.wav").Delay(4))
 
 #Left wall
 rectRoom.addSurfaces([Tri([Vec(-5,0,0), Vec(-5,15,0), Vec(-5,0,3)]),
