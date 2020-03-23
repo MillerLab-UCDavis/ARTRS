@@ -58,16 +58,17 @@ class Scene:
         for polIndex in np.arange(numRaysPolar):
             for azIndex in np.arange(numRaysAzimuth):
                 polarAngle = polIndex * np.pi / numRaysPolar
-                azimuthAngle = azIndex * np.pi / numRaysAzimuth
-                cylCoord = np.sin(azimuthAngle)
-                raysList.append(Geometry.Vec(cylCoord*np.cos(polarAngle),
-                                cylCoord*np.sin(polarAngle),
-                                np.cos(azimuthAngle)))
+                azimuthAngle = azIndex * 2*np.pi / numRaysAzimuth
+                cylCoord = np.sin(polarAngle)
+                raysList.append(Geometry.Vec(cylCoord*np.cos(azimuthAngle),
+                                cylCoord*np.sin(azimuthAngle),
+                                np.cos(polarAngle)))
         #Calculate the signal as heard from each receiver
         for receiver in self.receivers:
             data.append(np.array([0], dtype="int16"))
 
-            for direction in raysList:
+            for rayIndex, direction in enumerate(raysList):
+                print("Tracing"+ "."*(5-(rayIndex+1)%5), end="\r", flush=True)
                 ray = Ray(direction, origin=receiver.location)
                 rayData = ray.Trace(self)
                 data[channels] = addSources(data[channels], rayData)
@@ -160,10 +161,11 @@ class Ray:
     def __init__(self, direction, origin = None, distance = 0):
         '''Expects two vectors: one to describe the origin (or tail)
             pf the vector, and another to describe the direction of 
-            the head for the vector.
+            the head for the vector. Distance parameter indicates the
+            distanced traveled before reaching the ray origin.
 
-            Omitting the origin parameter has the behavior of declaring
-            a ray which begins at the origin of the coordinate system.
+            Omitting the origin parameter declares a ray which begins
+            at the origin of the coordinate system.
         '''
         self.direction = direction.unit()
         self.origin = Geometry.NullVec() if origin is None else origin
@@ -211,7 +213,7 @@ class Ray:
         if hasReflection:
             direction = nearThing.Reflection(self.direction)
             reflectedRay = Ray(direction, origin=nearIntersect, distance=self.distance+nearDistance)
-            rayData = addSources(rayData, reflectedRay.Trace(Scene))
+            rayData = addSources(rayData, 0.6*reflectedRay.Trace(Scene))
         
         return rayData
             

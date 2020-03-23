@@ -45,22 +45,25 @@ zhat = Vec(0,0,1)
 
 ## Small example room
 
-rectRoom = Scene.Scene(fileName = "rectRoom.wav")
+rectRoom = Scene.Scene(fileName = "rectRoom2.wav")
 #ears separated by about 8cm (overestimate)
-rectRoom.addReceiver(Scene.Receiver(Vec(-0.08,0,0), "left_ear"))
-rectRoom.addReceiver(Scene.Receiver(Vec(0.08,0,0), "right_ear"))
+rectRoom.addReceiver(Scene.Receiver(Vec(-0.08,0,1.75), "left_ear"))
+rectRoom.addReceiver(Scene.Receiver(Vec(0.08,0,1.75), "right_ear"))
 
-rectRoom.addSource(Scene.Source(Vec(0,10,0), fileName="click.wav")) #click 10 meters ahead
-rectRoom.addSource(Scene.Source(Vec(-1.5,12,0), fileName="click.wav").Delay(2))
-rectRoom.addSource(Scene.Source(Vec(3,11,0), fileName="click.wav").Delay(4))
+#click 10 meters straight ahead ~1ft above ground
+rectRoom.addSource(Scene.Source(Vec(0,10,0.3), fileName="click.wav"))
+#click 12 meters ahead, 1.5 meters left of center, and 2m above ground
+rectRoom.addSource(Scene.Source(Vec(-1.5,12,2), fileName="click.wav").Delay(2))
+#click 11 meters ahead, 3 meters right of center, 1m above ground
+rectRoom.addSource(Scene.Source(Vec(3,11,1), fileName="click.wav").Delay(4))
 
 #Left wall
-rectRoom.addSurfaces([Tri([Vec(-5,0,0), Vec(-5,15,0), Vec(-5,0,3)]),
-                    Tri([Vec(-5,15,0), Vec(-5,15,3), Vec(-5,0,3)])
+rectRoom.addSurfaces([Tri([Vec(-5,-5,0), Vec(-5,15,0), Vec(-5,-5,3)]),
+                    Tri([Vec(-5,15,0), Vec(-5,15,3), Vec(-5,-5,3)])
                     ])
 #Right wall
-rectRoom.addSurfaces([Tri([Vec(5,0,0), Vec(5,15,0), Vec(5,0,3)]),
-                    Tri([Vec(5,15,0), Vec(5,15,3), Vec(5,0,3)])
+rectRoom.addSurfaces([Tri([Vec(5,-5,0), Vec(5,15,0), Vec(5,-5,3)]),
+                    Tri([Vec(5,15,0), Vec(5,15,3), Vec(5,-5,3)])
                     ])
 #Front wall
 rectRoom.addSurfaces([Tri([Vec(-5,15,0), Vec(-5,15,3), Vec(5,15,0)]),
@@ -70,12 +73,19 @@ rectRoom.addSurfaces([Tri([Vec(-5,15,0), Vec(-5,15,3), Vec(5,15,0)]),
 rectRoom.addSurfaces([Tri([Vec(-5,-5,0), Vec(-5,-5,3), Vec(5,-5,0)]),
                     Tri([Vec(-5,-5,3), Vec(5,-5,3), Vec(5,-5,0)])
                     ])
+#Roof
+rectRoom.addSurfaces([Tri([Vec(-5,-5,3), Vec(-5,15,3), Vec(5,-5,3)]),
+                    Tri([Vec(-5,15,3), Vec(5,15,3), Vec(5,-5,3)])
+                    ])
+#Floor
+rectRoom.addSurfaces([Tri([Vec(-5,-5,0), Vec(-5,15,0), Vec(5,-5,0)]),
+                    Tri([Vec(-5,15,0), Vec(5,15,0), Vec(5,-5,0)])
+                    ])
 
-print("Tracing...", end="\r")
 startTime = time.time()
-traceData = rectRoom.Trace(numRaysAzimuth=150, numRaysPolar=150)
+traceData = rectRoom.Trace(numRaysAzimuth=152, numRaysPolar=152)
 totalTime = time.time()-startTime
-print(f"Done in {totalTime} seconds.", flush=True)
+print(f"Done in {totalTime} seconds.")
 
 print(traceData.shape)
 import matplotlib.pyplot as plt
