@@ -1,29 +1,19 @@
 '''
-    This module defines basic interactions with the scene and acts
-    as an interface with blender.
-
-    It can not be run as a standalone script; proper use involves
-    the blender open-source 3D modeling program.
-    Syntax is:
-        blender -b -p Scene.py
+    This module provides a low-level programmatic interface
+    for defining and ray tracing scenes based on geometric
+    primitives. 
     
-    or with scene data:
-        blender myscene.blend -b -p Scene.py
+    The module is designed to minimized the operations
+    in each function so the user can decide when actions
+    need to be taken. As such, declaring 
 '''
-
-# import bpy
-
-# print(f"Objects: {bpy.data.objects}")
-
-# for mesh in bpy.data.meshes:
-#     print(f"Mesh: {mesh}")
-#     numVertices = len(mesh.vertices)
-#     for index in range(numVertices):
-#         print(f"Vertex {index}: {list(mesh.vertices[index].co)}")
 
 import numpy as np
 import scipy.io.wavfile as wavfile
 import Geometry
+#import numba
+import multiprocessing as mp
+from itertools import product
 
 PROP_SPEED = 343.0 #speed of sound (m/s) at room temp and 1atm
 
@@ -49,37 +39,44 @@ class Scene:
     def addReceiver(self, receiver):
         self.receivers.append(receiver)
 
-    def Trace(self, numRaysAzimuth=50, numRaysPolar=50):
-        data = [] #list to store each "channel's" output data
-        channels = 0
-        raysList = []
-        maxSampLength = 0
-        #Calculate rays to trace
+    def Trace(self, numRaysAzimuth=128, numRaysPolar=128, duration=5):
+        '''Calculates the signal received by each receiver in the scene.
+            
+            The numRaysAzimuthal determines the number of divisions for
+            the 2pi radians around the z-axis (with zero at the x-axis),
+            while numRaysPolar defines the divisions in the pi radians
+            away from the z-axis. Duration defines the total length in
+            seconds desired from the output
+        '''
+        numChannels = len(self.receivers)
+        maxSampLength = self.sampRate*duration
+        data = np.zeros((numChannels, maxSampLength), dtype='float32') # initialize space in memory
+        directions = []
+        #Calculate all directions to trace
         for polIndex in np.arange(numRaysPolar):
             for azIndex in np.arange(numRaysAzimuth):
                 polarAngle = polIndex * np.pi / numRaysPolar
                 azimuthAngle = azIndex * 2*np.pi / numRaysAzimuth
                 cylCoord = np.sin(polarAngle)
-                raysList.append(Geometry.Vec(cylCoord*np.cos(azimuthAngle),
+                directions.append(Geometry.Vec(cylCoord*np.cos(azimuthAngle),
                                 cylCoord*np.sin(azimuthAngle),
                                 np.cos(polarAngle)))
+
         #Calculate the signal as heard from each receiver
-        for receiver in self.receivers:
-            data.append(np.array([0], dtype="int16"))
+        for channel, receiver in enumerate(self.receivers):
+            print(f"Tracing channel {channel}...")
+            with mp.Pool() as pool:
+                results = pool.starmap(traceDirection,product(directions,[self],[receiver], [maxSampLength]))
 
-            for rayIndex, direction in enumerate(raysList):
-                print("Tracing"+ "."*(5-(rayIndex+1)%5), end="\r", flush=True)
-                ray = Ray(direction, origin=receiver.location)
-                rayData = ray.Trace(self)
-                data[channels] = addSources(data[channels], rayData)
+            for result in results:
+                data[channel][:len(result)] += result
+                del result
+            del results
 
-            # print(f"Max received amplitude: {np.max(data[channels])}")
-            maxSampLength = max(maxSampLength, len(data[channels]))
-            channels += 1
+            data[channel] /= np.max(data[channel])
+            print(f"Finished channel {channel}.")
 
-        for index, channel in enumerate(data):
-            data[index] = np.pad(channel, pad_width=[0, maxSampLength-len(channel)])
-        data = np.array(data, dtype="int16")
+
         return data
 
     def Save(self, data):
@@ -102,7 +99,9 @@ class Source:
         self.radius = 0.05 # set to 5cm for now
         data = wavfile.read(fileName, "rb")
         self.sampRate = data[0]
-        self.signal = data[1][:,0] #using only left channel for now
+        self.signal = data[1][:,0].astype("float32") #using only left channel for now
+        self.signal /= np.max(self.signal)
+
         # print(f"Max source amplitude: {np.max(self.signal)}")
         # print(f"Type: {self.signal.dtype}")
 
@@ -125,10 +124,10 @@ class Source:
         discriminant = quadB**2-quadA*quadC
         if discriminant > 0:
             discriminant = discriminant**0.5
-            #smallest solution
+            #use smallest solution by default
             distance = (-quadB-discriminant)/quadA
             if distance < 0:
-                #greatest solution
+                #use greatest solution when smallest is negative
                 distance = (-quadB+discriminant)/quadA
             return True, distance, (ray.origin + ray.direction*distance)
         elif discriminant == 0:
@@ -138,8 +137,9 @@ class Source:
             return False, 0, Geometry.NullVec()
 
 class Receiver:
-    '''Class definition of a sound source modeled as a small sphere from
-        which the signal originates.
+    '''Class definition of a sound receiver modeled as a point
+        which a signal can be detected, and representing a single
+        channel in the output of a Scene.
 
     '''
     def __init__(self, location, name):
@@ -171,30 +171,26 @@ class Ray:
         self.origin = Geometry.NullVec() if origin is None else origin
         self.distance = distance
 
-    def Trace(self, Scene):
+    def Trace(self, Scene, numSamples = None, rayData=None, attenuation=1.0):
         ''' Calculates the sound data for this ray finding intersections
             with each triangle in Scene. 
         '''
-        # print(f"{self.distance}")
-
-        nearDistance = float("inf")
+        numSamples = 1 if numSamples is None else numSamples
+        rayData = np.zeros((numSamples), dtype="float32") if rayData is None else rayData
+        nearDistance = float("inf") #default nearest distance
         nearIntersect = Geometry.NullVec()
         nearThing = None
         hasReflection = False
-        rayData = np.array([0], dtype="int16") #empty data condition
-        # sourceDirections = None
 
         #Direct path to sources
         for source in Scene.sources:
             (isIntersect, srcDist, srcIntersect) = source.Intersect(self)
             del srcIntersect #For now I'm ignoring the intersection point
             if isIntersect and srcDist > 0:
-                # print(self)
                 delayTime = srcDist / PROP_SPEED
                 delaySamples = int(round(delayTime*source.sampRate))
-                # print(f"Delay = {delaySamples}, {type(delaySamples)}")
-                srcData = np.pad(source.signal, pad_width=[delaySamples,0])
-                rayData = addSources(rayData, srcData)
+                srcLen = len(source.signal)
+                rayData[delaySamples:min(delaySamples+srcLen,numSamples)] += source.signal[:numSamples-delaySamples]
 
 
         #Intersect with all objects in the scene
@@ -213,20 +209,18 @@ class Ray:
         if hasReflection:
             direction = nearThing.Reflection(self.direction)
             reflectedRay = Ray(direction, origin=nearIntersect, distance=self.distance+nearDistance)
-            rayData = addSources(rayData, 0.6*reflectedRay.Trace(Scene))
+            reflectedRay.Trace(Scene, numSamples=numSamples, rayData=rayData, attenuation=0.6)
+            del reflectedRay
         
+        #enforce reflection attenuation
+        if attenuation != 1.0:
+            rayData *= attenuation
+            
         return rayData
             
     def __str__(self):
         return f"<class Ray, Origin: {self.origin},\tDirection: {self.direction},\tDistance:{self.distance}>"
 
 
-def addSources(data1, data2):
-    length1 = len(data1)
-    length2 = len(data2)
-    if length1 < length2:
-        data1 = np.pad(data1, pad_width=[0,length2-length1])
-    elif length2 < length1:
-        data2 = np.pad(data2, pad_width=[0,length1-length2])
-    return data1+data2
-
+def traceDirection(direction, scene, receiver, numSamples):
+    return Ray(direction, origin=receiver.location).Trace(scene, numSamples=numSamples)
