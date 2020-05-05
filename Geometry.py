@@ -154,7 +154,7 @@ class Tri:
         self.vertices = vertices
 
     def __str__(self):
-        return f"<class Tri, Vertices:\n\t{self.vertices[0]},\n\t{self.vertices[1]},\n\t{self.vertices[2]}>"
+        return f"\t<class Tri>\n\t\t{self.vertices[0]},\n\t\t{self.vertices[1]},\n\t\t{self.vertices[2]}\n\t</Tri>"
 
     def norm(self):
         edge1 = self.vertices[1]-self.vertices[0]
@@ -199,3 +199,8 @@ class Tri:
         norm = self.norm()
         # vector and norm must always point in opposite directions
         return direction - norm*(2*norm.dot(direction))
+
+#Unit Cartesian vectors
+xHat = Vec(1,0,0)
+yHat = Vec(0,1,0)
+zHat = Vec(0,0,1)

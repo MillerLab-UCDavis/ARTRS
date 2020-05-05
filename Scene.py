@@ -2,16 +2,11 @@
     This module provides a low-level programmatic interface
     for defining and ray tracing scenes based on geometric
     primitives. 
-    
-    The module is designed to minimized the operations
-    in each function so the user can decide when actions
-    need to be taken. As such, declaring 
 '''
 
 import numpy as np
 import scipy.io.wavfile as wavfile
 import Geometry
-#import numba
 import multiprocessing as mp
 from itertools import product
 
@@ -39,6 +34,14 @@ class Scene:
     def addReceiver(self, receiver):
         self.receivers.append(receiver)
 
+    def addReceivers(self, receivers):
+        for receiver in receivers:
+            self.receivers.append(receiver)
+
+    def clearScene(self):
+        self.sources = []
+        self.receivers = []
+
     def Trace(self, numRaysAzimuth=128, numRaysPolar=128, duration=5):
         '''Calculates the signal received by each receiver in the scene.
             
@@ -61,17 +64,39 @@ class Scene:
                 directions.append(Geometry.Vec(cylCoord*np.cos(azimuthAngle),
                                 cylCoord*np.sin(azimuthAngle),
                                 np.cos(polarAngle)))
-
+        totalRays = len(directions)
+        
         #Calculate the signal as heard from each receiver
         for channel, receiver in enumerate(self.receivers):
             print(f"Tracing channel {channel}...")
             with mp.Pool() as pool:
-                results = pool.starmap(traceDirection,product(directions,[self],[receiver], [maxSampLength]))
+                results = mp.Queue()
+                pool.starmap_async(traceDirection,product(directions,[self],[receiver], [maxSampLength]), callback=results.put)
 
-            for result in results:
-                data[channel][:len(result)] += result
-                del result
-            del results
+                print("Progress:\t[----------]\t0%", end="\r", flush=True)
+                for i in range(totalRays):
+                    rayData = results.get()
+                    data[channel][:len(rayData)] += rayData
+                    del rayData
+                    progress = "Progress:\t["
+                    barLen = int((i/totalRays)//10)
+                    progress += "#"*barLen
+                    progress += "-"*(10-barLen)
+                    progress +="]\t"+f"\t{i}/{totalRays}\t({i/totalRays:.2}%)"
+                    print(progress, end="\r", flush=True)
+
+
+                # while not work.ready():
+                #     if results.empty():
+                #         continue
+                #     rayData = results.get()
+                #     data[channel][:len(rayData)] += rayData
+                #     del rayData
+
+            # for result in results:
+            #     data[channel][:len(result)] += result
+            #     del result
+            # del results
 
             data[channel] /= np.max(data[channel])
             print(f"Finished channel {channel}.")
@@ -83,6 +108,23 @@ class Scene:
         # print("Data type: ", data.dtype)
         wavfile.write(self.fileName, self.sampRate, data)
         return True
+
+    def __str__(self):
+        description = f"<class Scene, file name: {self.fileName},\tsample rate: >\n"
+        description += "<Sources>\n"
+        for source in self.sources:
+            description += f"\t{source}\n"
+        description += "</Sources>\n"
+        description += "<Receivers>\n"
+        for receiver in self.receivers:
+            description += f"\t{receiver}\n"
+        description += "</Receivers>\n"
+        description += "<Tris>\n"
+        for tri in self.tris:
+            description += f"{tri}\n"
+        description += "</Tris>\n"
+        description += "</Scene>"
+        return description
 
 class Source:
     '''Class definition of a sound source modeled as a small sphere from
@@ -104,6 +146,9 @@ class Source:
 
         # print(f"Max source amplitude: {np.max(self.signal)}")
         # print(f"Type: {self.signal.dtype}")
+
+    def __str__(self):
+        return f"<class Source, File name: {self.fileName},\tLocation: {self.location},\tSample rate: {self.sampRate}>"
 
     def Delay(self, seconds):
         sampDelay = int(round(self.sampRate*seconds))
@@ -136,6 +181,7 @@ class Source:
         else:
             return False, 0, Geometry.NullVec()
 
+
 class Receiver:
     '''Class definition of a sound receiver modeled as a point
         which a signal can be detected, and representing a single
@@ -148,9 +194,9 @@ class Receiver:
         '''
         self.name = name
         self.location = location
-        self.sounds = []
 
-
+    def __str__(self):
+        return f"<class Receiver, Name: {self.name}, Location: {self.location}>"
 
 
 class Ray:
@@ -170,6 +216,9 @@ class Ray:
         self.direction = direction.unit()
         self.origin = Geometry.NullVec() if origin is None else origin
         self.distance = distance
+
+    def __str__(self):
+        return f"<class Ray, Origin: {self.origin},\tDirection: {self.direction},\tDistance:{self.distance}>"
 
     def Trace(self, Scene, numSamples = None, rayData=None, attenuation=1.0):
         ''' Calculates the sound data for this ray finding intersections
@@ -218,9 +267,45 @@ class Ray:
             
         return rayData
             
-    def __str__(self):
-        return f"<class Ray, Origin: {self.origin},\tDirection: {self.direction},\tDistance:{self.distance}>"
+
+class RectRoom(Scene):
+    def __init__(self, width, length, height, fileName = "output.wav"):
+        '''The most basic, pre-defined Scene representing a closed
+            rectangular room. Width defines the x-dimension, length
+            defines the y-dimension, and height defines the z-dimension.
+            The room is defined within the positive cartesian quadrant.
+        '''
+        #Define corners of room
+        vert1 = Geometry.NullVec()
+        vert2 = Geometry.Vec(0, 0, height)
+        vert3 = Geometry.Vec(width, 0, height)
+        vert4 = Geometry.Vec(width, 0, 0)
+        vert5 = Geometry.Vec(0, length, 0)
+        vert6 = Geometry.Vec(0, length, height)
+        vert7 = Geometry.Vec(width, length, height)
+        vert8 = Geometry.Vec(width, length, 0)
+        #Call super class to initialize member variables and functions
+        Scene.__init__(self, fileName=fileName)
+        #Close wall
+        self.addSurfaces([Geometry.Tri([vert1, vert2, vert4]),
+                        Geometry.Tri([vert2, vert3, vert4])])
+        #Farthest wall
+        self.addSurfaces([Geometry.Tri([vert5, vert6, vert8]),
+                        Geometry.Tri([vert6, vert7, vert8])])
+        #Left wall
+        self.addSurfaces([Geometry.Tri([vert1, vert2, vert5]),
+                        Geometry.Tri([vert2, vert6, vert5])])
+        #Right wall
+        self.addSurfaces([Geometry.Tri([vert4, vert3, vert8]),
+                        Geometry.Tri([vert3, vert7, vert8])])
+        #Floor
+        self.addSurfaces([Geometry.Tri([vert1, vert5, vert4]),
+                        Geometry.Tri([vert5, vert8, vert4])])
+        #Roof
+        self.addSurfaces([Geometry.Tri([vert2, vert6, vert3]),
+                        Geometry.Tri([vert6, vert7, vert3])])        
 
 
 def traceDirection(direction, scene, receiver, numSamples):
+    '''Helper function which can handle the parallel execution of rays'''
     return Ray(direction, origin=receiver.location).Trace(scene, numSamples=numSamples)

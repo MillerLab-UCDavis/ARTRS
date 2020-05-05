@@ -82,18 +82,15 @@ rectRoom.addSurfaces([Tri([Vec(-5,-5,0), Vec(-5,15,0), Vec(5,-5,0)]),
                     Tri([Vec(-5,15,0), Vec(5,15,0), Vec(5,-5,0)])
                     ])
 
-startTime = time.time()
-traceData = rectRoom.Trace(numRaysAzimuth=152, numRaysPolar=152)
-totalTime = time.time()-startTime
-print(f"Done in {totalTime} seconds.")
+if __name__ == "__main__":    
+    startTime = time.time()
+    traceData = rectRoom.Trace(numRaysAzimuth=152, numRaysPolar=152)
+    totalTime = time.time()-startTime
+    print(f"Done in {totalTime} seconds.")
 
-print(traceData.shape)
-import matplotlib.pyplot as plt
+    print(traceData.shape)
 
-plt.plot(traceData.T)
-plt.show()
-
-rectRoom.Save(traceData.T)
+    rectRoom.Save(traceData.T)
 
 
 
