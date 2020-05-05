@@ -70,36 +70,36 @@ class Scene:
         for channel, receiver in enumerate(self.receivers):
             print(f"Tracing channel {channel}...")
             with mp.Pool() as pool:
-                results = mp.Queue()
-                pool.starmap_async(traceDirection,product(directions,[self],[receiver], [maxSampLength]), callback=results.put)
+                workers = []
+                args = list(product(directions,[self],[receiver], [maxSampLength]))
+                totalBytes = 4*totalRays*maxSampLength
+                memChunk = 5000000000 #split into 5 roughly GB chunks
+                numChunks = totalBytes//memChunk + 1
+                chunkSize = totalRays//(numChunks-1) #true size
+                #split into multiple asynchronous calls so that they get processed along the way
+                for chunk in range(numChunks):
+                    workers.append(pool.starmap_async(traceDirection, args[chunk*chunkSize:(chunk+1)*chunkSize]))
+                    print(f"Queueing chunk {chunk+1}/{numChunks}, with indices {chunk*chunkSize}:{(chunk+1)*chunkSize} out of {totalRays}")
 
-                print("Progress:\t[----------]\t0%", end="\r", flush=True)
-                for i in range(totalRays):
-                    rayData = results.get()
-                    data[channel][:len(rayData)] += rayData
-                    del rayData
-                    progress = "Progress:\t["
-                    barLen = int((i/totalRays)//10)
-                    progress += "#"*barLen
-                    progress += "-"*(10-barLen)
-                    progress +="]\t"+f"\t{i}/{totalRays}\t({i/totalRays:.2}%)"
-                    print(progress, end="\r", flush=True)
-
-
-                # while not work.ready():
-                #     if results.empty():
-                #         continue
-                #     rayData = results.get()
-                #     data[channel][:len(rayData)] += rayData
-                #     del rayData
-
-            # for result in results:
-            #     data[channel][:len(result)] += result
-            #     del result
-            # del results
+                raysDone = 0
+                print("Progress:\t[--------------------]\t0%", end="\r", flush=True)
+                for i in range(numChunks):
+                    chunk = workers.pop(0).get()
+                    for rayData in chunk:
+                        data[channel][:len(rayData)] += rayData
+                        del rayData
+                        raysDone += 1
+                        progress = "Progress:\t["
+                        percent = raysDone*100/totalRays
+                        barLen = int(percent//5)
+                        progress += "#"*barLen
+                        progress += "-"*(20-barLen)
+                        progress +="]\t"+f"\t{raysDone}/{totalRays}\t({percent:.1f}%) chunk {i+1} out of {numChunks}"
+                        print(progress, end="\r", flush=True)
+                    del chunk
 
             data[channel] /= np.max(data[channel])
-            print(f"Finished channel {channel}.")
+            print(f"\nFinished channel {channel}.")
 
 
         return data
