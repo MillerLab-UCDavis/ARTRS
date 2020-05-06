@@ -94,7 +94,7 @@ class Scene:
                         barLen = int(percent//5)
                         progress += "#"*barLen
                         progress += "-"*(20-barLen)
-                        progress +="]\t"+f"\t{raysDone}/{totalRays}\t({percent:.1f}%) chunk {i+1} out of {numChunks}"
+                        progress +=f"]  {raysDone}/{totalRays} rays ({percent:.1f}%) chunk {i+1} out of {numChunks}"
                         print(progress, end="\r", flush=True)
                     del chunk
 
