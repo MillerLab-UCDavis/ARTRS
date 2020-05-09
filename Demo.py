@@ -17,11 +17,11 @@ rectRoom.addReceiver(Scene.Receiver(Vec(-0.08,0,1.75), "left_ear"))
 rectRoom.addReceiver(Scene.Receiver(Vec(0.08,0,1.75), "right_ear"))
 
 #click 10 meters straight ahead ~1ft above ground
-rectRoom.addSource(Scene.Source(Vec(0,10,0.3), fileName="click.wav"))
+rectRoom.addSource(Scene.Source(Vec(0,10,0.3), name="click.wav"))
 #click 12 meters ahead, 1.5 meters left of center, and 2m above ground
-rectRoom.addSource(Scene.Source(Vec(-1.5,12,2), fileName="click.wav").Delay(2))
+rectRoom.addSource(Scene.Source(Vec(-1.5,12,2), name="click.wav").Delay(2))
 #click 11 meters ahead, 3 meters right of center, 1m above ground
-rectRoom.addSource(Scene.Source(Vec(3,11,1), fileName="click.wav").Delay(4))
+rectRoom.addSource(Scene.Source(Vec(3,11,1), name="click.wav").Delay(4))
 
 #Left wall
 rectRoom.addSurfaces([Tri([Vec(-5,-5,0), Vec(-5,15,0), Vec(-5,-5,3)]),

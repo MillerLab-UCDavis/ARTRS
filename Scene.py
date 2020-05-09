@@ -5,10 +5,11 @@
 '''
 
 import numpy as np
-import scipy.io.wavfile as wavfile
-import Geometry
+import soundfile as sf
+
 import multiprocessing as mp
 from itertools import product
+import Geometry
 
 PROP_SPEED = 343.0 #speed of sound (m/s) at room temp and 1atm
 
@@ -22,7 +23,12 @@ class Scene:
 
     def addSource(self, source):
         self.sources.append(source)
-        self.sampRate = max(self.sampRate, source.sampRate)
+        self.sampRate = max(self.sampRate, source.sampRate) #TODO: handle resampling for mismatched sources
+
+    def addSources(self, sources):
+        for source in sources:
+            self.sources.append(source)
+            self.sampRate = max(self.sampRate, source.sampRate)
 
     def addSurface(self, surface):
         self.tris.append(surface)
@@ -38,18 +44,27 @@ class Scene:
         for receiver in receivers:
             self.receivers.append(receiver)
 
-    def clearScene(self):
+    def clear(self):
+        '''Clears sources and receivers for scene reuse'''
         self.sources = []
         self.receivers = []
 
-    def Trace(self, numRaysAzimuth=128, numRaysPolar=128, duration=5):
+    def Trace(self, numRaysAzimuth=128, numRaysPolar=128, duration=5, memChunk=int(5e9)):
         '''Calculates the signal received by each receiver in the scene.
             
             The numRaysAzimuthal determines the number of divisions for
             the 2pi radians around the z-axis (with zero at the x-axis),
             while numRaysPolar defines the divisions in the pi radians
-            away from the z-axis. Duration defines the total length in
-            seconds desired from the output
+            away from the z-axis.
+            
+            Duration defines the total length in seconds desired for
+            the output data.
+
+            memChunk roughly represents the number of bytes of data that
+            are calculated before the results of each ray traced are added
+            together, and helps to divide the work so that the size of the
+            working set doesn't exceed the total system memory. The 
+            default size of memory chunks is 5GB.
         '''
         numChannels = len(self.receivers)
         maxSampLength = self.sampRate*duration
@@ -73,7 +88,6 @@ class Scene:
                 workers = []
                 args = list(product(directions,[self],[receiver], [maxSampLength]))
                 totalBytes = 4*totalRays*maxSampLength
-                memChunk = 5000000000 #split into 5 roughly GB chunks
                 numChunks = totalBytes//memChunk + 1
                 chunkSize = totalRays//(numChunks-1) #true size
                 #split into multiple asynchronous calls so that they get processed along the way
@@ -105,8 +119,7 @@ class Scene:
         return data
 
     def Save(self, data):
-        # print("Data type: ", data.dtype)
-        wavfile.write(self.fileName, self.sampRate, data)
+        sf.write(self.fileName, data, self.sampRate)
         return True
 
     def __str__(self):
@@ -131,24 +144,36 @@ class Source:
         which the signal originates.
 
     '''
-    def __init__(self, location, fileName = "click.wav"):
+    def __init__(self, location = Geometry.NullVec(), name = "click.wav", data=False):
         '''Expects a fileName in the local folder, and a location stored
-            as a vector.
+            as a vector. Alternatively, the data can be passed in as a
+            (signal, sampleRate) tuple. 
         '''
-        self.fileName = fileName
-        self.location = location
         #radius may eventually be calculated from strength of the signal
         self.radius = 0.05 # set to 5cm for now
-        data = wavfile.read(fileName, "rb")
-        self.sampRate = data[0]
-        self.signal = data[1][:,0].astype("float32") #using only left channel for now
-        self.signal /= np.max(self.signal)
-
-        # print(f"Max source amplitude: {np.max(self.signal)}")
-        # print(f"Type: {self.signal.dtype}")
+        self.name = name
+        self.location = location
+        if not data:
+            #check for file matching name
+            try:
+                data, self.sampRate = sf.read(name)
+                self.signal = data.T[0].astype("float32") #using only left channel for now
+                self.signal /= np.max(self.signal)
+            except:
+                print(f"No file matching '{name}' found; source data will be left uninitialized")
+                self.sampRate = None
+                self.signal = None
+        else:
+            #Initialize with data tuple
+            self.signal, self.sampRate = data
 
     def __str__(self):
-        return f"<class Source, File name: {self.fileName},\tLocation: {self.location},\tSample rate: {self.sampRate}>"
+        return f"<class Source, Name: {self.name},\tLocation: {self.location},\tSample rate: {self.sampRate}>"
+
+    def Save(self, directory=""):
+        name = self.name if self.name[-4:] == ".wav" else self.name+".wav"
+        sf.write(directory+name, self.signal, self.sampRate)
+        return True
 
     def Delay(self, seconds):
         sampDelay = int(round(self.sampRate*seconds))
@@ -275,6 +300,9 @@ class RectRoom(Scene):
             defines the y-dimension, and height defines the z-dimension.
             The room is defined within the positive cartesian quadrant.
         '''
+        self.width = width
+        self.length = length
+        self.height = height
         #Define corners of room
         vert1 = Geometry.NullVec()
         vert2 = Geometry.Vec(0, 0, height)
@@ -303,8 +331,21 @@ class RectRoom(Scene):
                         Geometry.Tri([vert5, vert8, vert4])])
         #Roof
         self.addSurfaces([Geometry.Tri([vert2, vert6, vert3]),
-                        Geometry.Tri([vert6, vert7, vert3])])        
+                        Geometry.Tri([vert6, vert7, vert3])])
 
+    def createPositions(self, numPositions, padding=0.25):
+        '''Returns a number of vectors with random locations within
+            the Scene (with some padding in meters from each wall).
+        '''
+        coords = np.random.random_sample(size=(numPositions, 3))
+        coords[:,0] *= self.width-2*padding
+        coords[:,0] += padding
+        coords[:,1] *= self.length-2*padding
+        coords[:,1] += padding
+        #height coordinate decided according to human height distribution
+        coords[:,2] = [int(value) for value in coords[:,2]]
+        coords[:,2] = [[np.random.normal(1.63, 0.07), np.random.normal(1.75, 0.075)][int(value)] for value in coords[:,2]]
+        return [Geometry.Vec(*row) for row in coords]
 
 def traceDirection(direction, scene, receiver, numSamples):
     '''Helper function which can handle the parallel execution of rays'''
