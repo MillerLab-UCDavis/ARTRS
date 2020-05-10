@@ -7,6 +7,8 @@ import os, sys, glob, random
 import Geometry as Geo
 import Scene
 
+MEMCHUNK = int(os.getenv("MEMCHUNK", "5000000000"))
+
 def createReceivers(steering, origin, numRecs = 8, spacing = 0.0186):
     '''Creates a linear microphone array normal in the xy-plane
         to the given steering vector. Returns a list of receivers
@@ -58,7 +60,8 @@ def createDataset(corpus, scene, numMixtures, numSpeakers, duration = 60, numRec
         scene.addReceivers(micArray)
         #Label and Trace the scene
         scene.fileName = f"{outPath}/{sceneName}--{index+numExisting}.wav"
-        traceData = scene.Trace(numRaysAzimuth=resolution[0], numRaysPolar=resolution[1], duration=duration)
+        traceData = scene.Trace(numRaysAzimuth=resolution[0], numRaysPolar=resolution[1], duration=duration, memChunk=MEMCHUNK)
+        serializeTrace = tf.io.serialize_tensor(traceData)
         scene.Save(traceData)
         #Save as TFRecords file
         exampleMessage = {
@@ -73,9 +76,9 @@ def createDataset(corpus, scene, numMixtures, numSpeakers, duration = 60, numRec
             exampleMessage["location"+str(spkNum+1)] = tf.train.Feature(float_list=tf.train.FloatList(value=person.signal))
             exampleMessage["signal"+str(spkNum+1)] = tf.train.Feature(float_list=tf.train.FloatList(value=person.location.coords))
             person.Save(f"{outPath}/")
-        exampleMessage["traceData"] = tf.train.Feature(float_list=tf.train.FloatList(value=traceData))
+        exampleMessage["traceData"] = tf.train.Feature(int64_list=tf.train.Int64List(value=serializeTrace.numpy()))
         exampleObj = tf.train.Example(features=tf.train.Features(feature=exampleMessage))
-        with tf.io.TFRecordWriter(scene.fileName[:-4]+".tfrecords'") as writer:
+        with tf.io.TFRecordWriter(scene.fileName[:-4]+".tfrecord") as writer:
             writer.write(exampleObj.SerializeToString())
 
         scene.clear()

@@ -12,6 +12,11 @@ from itertools import product
 import Geometry
 
 PROP_SPEED = 343.0 #speed of sound (m/s) at room temp and 1atm
+REFL_COEFF = 1-0.03 #estimated for 500Hz using random-incidence absorption
+MAX_PATH_LEN = 50 #spreading losses amount to ~60dB after 
+ATM_ATTEN = 0.6e-3 #atmospheric attenuation at roughly room temp and 50% humidity
+EULER = np.exp(1)
+
 
 class Scene:
     def __init__(self, fileName = "output.wav", sources = None, tris = None, receiver = None):
@@ -91,9 +96,9 @@ class Scene:
                 numChunks = totalBytes//memChunk + 1
                 chunkSize = totalRays//(numChunks-1) #true size
                 #split into multiple asynchronous calls so that they get processed along the way
+                print(f"Queueing {numChunks} chunks")
                 for chunk in range(numChunks):
                     workers.append(pool.starmap_async(traceDirection, args[chunk*chunkSize:(chunk+1)*chunkSize]))
-                    print(f"Queueing chunk {chunk+1}/{numChunks}, with indices {chunk*chunkSize}:{(chunk+1)*chunkSize} out of {totalRays}")
 
                 raysDone = 0
                 print("Progress:\t[--------------------]\t0%", end="\r", flush=True)
@@ -119,7 +124,7 @@ class Scene:
         return data
 
     def Save(self, data):
-        sf.write(self.fileName, data, self.sampRate)
+        sf.write(self.fileName, data.T, self.sampRate)
         return True
 
     def __str__(self):
@@ -166,6 +171,8 @@ class Source:
         else:
             #Initialize with data tuple
             self.signal, self.sampRate = data
+            self.signal = self.signal.astype("float32")
+            self.signal /= np.max(self.signal)
 
     def __str__(self):
         return f"<class Source, Name: {self.name},\tLocation: {self.location},\tSample rate: {self.sampRate}>"
@@ -260,11 +267,14 @@ class Ray:
         for source in Scene.sources:
             (isIntersect, srcDist, srcIntersect) = source.Intersect(self)
             del srcIntersect #For now I'm ignoring the intersection point
-            if isIntersect and srcDist > 0:
+            if isIntersect and srcDist > 0 and srcDist + self.distance < MAX_PATH_LEN :
+                totDist = srcDist + self.distance
                 delayTime = srcDist / PROP_SPEED
                 delaySamples = int(round(delayTime*source.sampRate))
                 srcLen = len(source.signal)
-                rayData[delaySamples:min(delaySamples+srcLen,numSamples)] += source.signal[:numSamples-delaySamples]
+                signal = ((EULER**(-ATM_ATTEN*totDist))**0.5)*source.signal[:numSamples-delaySamples]
+                rayData[delaySamples:min(delaySamples+srcLen,numSamples)] += signal
+                del signal
 
 
         #Intersect with all objects in the scene
@@ -279,11 +289,13 @@ class Ray:
                 nearThing = [nearThing, thing][updateDistance]
                 
         #a recursive call to Trace should be performed
-        hasReflection = nearDistance + self.distance < 120 #TODO: Find new calculation for terminating the recursion
+        hasReflection = nearDistance + self.distance < MAX_PATH_LEN #TODO: Find better calculation for terminating the recursion
         if hasReflection:
             direction = nearThing.Reflection(self.direction)
+            totDist = nearDistance + self.distance
             reflectedRay = Ray(direction, origin=nearIntersect, distance=self.distance+nearDistance)
-            reflectedRay.Trace(Scene, numSamples=numSamples, rayData=rayData, attenuation=0.6)
+            totAtten = REFL_COEFF*((EULER**(-ATM_ATTEN*totDist))**0.5)
+            reflectedRay.Trace(Scene, numSamples=numSamples, rayData=rayData, attenuation=totAtten)
             del reflectedRay
         
         #enforce reflection attenuation
