@@ -146,4 +146,4 @@ if __name__ == "__main__":
     argc = len(sys.argv)
     smallRoom = Scene.RectRoom(width=3, length=4, height=3, fileName="SmallRoom")
     corpus = LibriSpeech("dev-clean" if argc == 1 else sys.argv[1])
-    createDataset(corpus, smallRoom, 60, 3)
+    createDataset(corpus, smallRoom, 60, 3, resolution=(640, 320))
